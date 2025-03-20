@@ -1,0 +1,1 @@
+from .view import updateView_BaslerCameraGUI
