@@ -1,8 +1,10 @@
 from __future__ import annotations
-from typing import Dict
+from typing import Dict, List, Tuple
 from PyQt5.QtWidgets import QLineEdit
 from pypylon import pylon
 import numpy as np
+import cv2
+import time
 
 """
 Balser Camera Capture
@@ -26,7 +28,7 @@ def setCamera(
         camera: pylon.InstantCamera, 
         converter: pylon.ImageFormatConverter,  
         dict_camera_config: Dict[str, float]
-        ) -> None:
+        ) -> Tuple[pylon.InstantCamera, pylon.ImageFormatConverter]:
     camera.AcquisitionFrameRateEnable.SetValue(True)
     camera.AcquisitionFrameRate.SetValue(dict_camera_config["fps"]) # FPS
     camera.OffsetX = dict_camera_config["offset_x"]
@@ -39,6 +41,40 @@ def setCamera(
     # converting to opencv bgr format
     converter.OutputPixelFormat = pylon.PixelType_Mono8
     converter.OutputBitAlignment = pylon.OutputBitAlignment_MsbAligned
+    return camera, converter
+
+# キャプチャ開始
+def startCapture(        
+        camera: pylon.InstantCamera, 
+        converter: pylon.ImageFormatConverter, 
+        dict_lineedit: Dict[str, QLineEdit]
+        ) -> Tuple[pylon.InstantCamera, pylon.ImageFormatConverter]:
+    # カメラセット
+    camera.Open()
+    dict_camera_config = getCameraConfigDict(dict_lineedit)
+    camera, converter = setCamera(camera, converter, dict_camera_config)
+    return camera, converter
+
+# キャプチャ終了
+def stopCapture(
+        camera: pylon.InstantCamera, 
+) -> pylon.InstantCamera:
+    camera.StopGrabbing()
+    camera.Close()
+    return camera
+
+# 画像取得
+def captureImage(
+        camera: pylon.InstantCamera, 
+        converter: pylon.ImageFormatConverter, 
+) -> np.ndarray[int, int]:
+    grabResult = camera.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
+    if grabResult.GrabSucceeded():
+        image = converter.Convert(grabResult)
+        img = image.GetArray()
+    grabResult.Release()
+    return img
+    
 
 # 画像を1枚取得
 def singleCapture(
@@ -46,16 +82,52 @@ def singleCapture(
         converter: pylon.ImageFormatConverter, 
         dict_lineedit: Dict[str, QLineEdit]
         ) -> np.ndarray[int, int]:
-    # カメラセット
-    camera.Open()
-    dict_camera_config = getCameraConfigDict(dict_lineedit)
-    setCamera(camera, converter, dict_camera_config)
-
+    camera, converter = startCapture(camera, converter, dict_lineedit)
+    # only single capture
     camera.StartGrabbing(pylon.GrabStrategy_OneByOne)
-    grabResult = camera.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
-    image = converter.Convert(grabResult)
-    img = image.GetArray()
-    grabResult.Release()
-    camera.StopGrabbing()
-    camera.Close()
+    img = captureImage(camera, converter)
+    camera = stopCapture(camera)
     return img
+
+# カメラの連続撮影、別ウィンドウに表示
+def continuousCapture(
+    camera: pylon.InstantCamera, 
+    converter: pylon.ImageFormatConverter, 
+    dict_lineedit: Dict[str, QLineEdit],
+    cv2_window_name: str = "",
+    video_writer: cv2.VideoWriter = None,
+) -> List[float]:
+    camera, converter = startCapture(camera, converter, dict_lineedit)
+    
+    # 時間計測用配列
+    t_array = []
+    
+    # キャプチャフラグ
+    capture_flag = True
+    
+    # 連続キャプチャ開始
+    camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+    
+    while capture_flag:
+        img = captureImage(camera, converter)
+            
+        # OpenCVウィンドウに表示
+        if cv2_window_name != "":
+            cv2.imshow(cv2_window_name, img)
+        # 動画に画像書き込み
+        if video_writer is not None:
+            video_writer.write(img)
+        
+        # 時間記録
+        t = time.time()
+        t_array.append(t)
+        
+        # Escキーでキャプチャ終了
+        key = cv2.waitKey(1)
+        if key == 27:  # Esc key
+            capture_flag = False
+        
+    # リソース解放
+    stopCapture(camera)
+    cv2.destroyAllWindows()
+    return t_array
