@@ -47,11 +47,10 @@ def setCamera(
 def startCapture(        
         camera: pylon.InstantCamera, 
         converter: pylon.ImageFormatConverter, 
-        dict_lineedit: Dict[str, QLineEdit]
+        dict_camera_config: Dict[str, float]
         ) -> Tuple[pylon.InstantCamera, pylon.ImageFormatConverter]:
     # カメラセット
     camera.Open()
-    dict_camera_config = getCameraConfigDict(dict_lineedit)
     camera, converter = setCamera(camera, converter, dict_camera_config)
     return camera, converter
 
@@ -75,14 +74,13 @@ def captureImage(
     grabResult.Release()
     return img
     
-
 # 画像を1枚取得
 def singleCapture(
         camera: pylon.InstantCamera, 
         converter: pylon.ImageFormatConverter, 
-        dict_lineedit: Dict[str, QLineEdit]
+        dict_camera_config: Dict[str, float]
         ) -> np.ndarray[int, int]:
-    camera, converter = startCapture(camera, converter, dict_lineedit)
+    camera, converter = startCapture(camera, converter, dict_camera_config)
     # only single capture
     camera.StartGrabbing(pylon.GrabStrategy_OneByOne)
     img = captureImage(camera, converter)
@@ -93,14 +91,16 @@ def singleCapture(
 def continuousCapture(
     camera: pylon.InstantCamera, 
     converter: pylon.ImageFormatConverter, 
-    dict_lineedit: Dict[str, QLineEdit],
+    dict_camera_config: Dict[str, float],
     cv2_window_name: str = "",
     video_writer: cv2.VideoWriter = None,
+    return_timestamps: bool = False,
+    key_id: int = 27,  # Esc key
 ) -> List[float]:
-    camera, converter = startCapture(camera, converter, dict_lineedit)
+    camera, converter = startCapture(camera, converter, dict_camera_config)
     
     # 時間計測用配列
-    t_array = []
+    list_t = []
     
     # キャプチャフラグ
     capture_flag = True
@@ -120,14 +120,17 @@ def continuousCapture(
         
         # 時間記録
         t = time.time()
-        t_array.append(t)
+        list_t.append(t)
         
         # Escキーでキャプチャ終了
         key = cv2.waitKey(1)
-        if key == 27:  # Esc key
+        if key == key_id:
             capture_flag = False
         
     # リソース解放
     stopCapture(camera)
     cv2.destroyAllWindows()
-    return t_array
+    if return_timestamps:
+        return list_t
+    else:
+        return
